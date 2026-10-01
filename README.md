@@ -19,12 +19,17 @@ A tiny offline texture editor for Minecraft Java Edition. No install, no admin r
 - No Minecraft assets are included here; textures are read from your own copy of the game.
 
 ## Features
-Asset browser (Blocks / Items / Entities / More) with search · pencil, eraser, fill, fill-all-matching, picker, mirror, brush size · hue/saturation/brightness recolour · layers & overlays (from blank, from another game texture, or from a PNG) · undo/redo · new textures · re-opens your earlier pack · AI idea helper.
+Asset browser (Blocks / Items / Entities / More) with search · pencil, eraser, fill, fill-all-matching, picker, mirror, brush size · hue/saturation/brightness recolour · layers & overlays (from blank, from another game texture, or from a PNG) · undo/redo · 3D preview (blocks, items, creeper, zombie/skeleton-style mobs) · new textures that become real holdable items (see below) · re-opens your earlier pack · AI idea helper.
 
 ## AI Idea Helper
 Needs internet and an Anthropic API key (paste it once via "Set key"; stored only in this browser). Uses a small, cheap model (`MODEL` at the top of the script). Colours it suggests are clickable.
 
+## Making a brand-new item
+Click **＋ New texture**, paint it, **Save**. The pack also gets the model files. In the 🎨 Paint tab, "New items in the game" shows a command like
+`/give @s minecraft:paper[item_model="minecraft:ruby"]`: reload the pack (F3+T), paste it in chat (cheats on) and you're holding it. Needs Minecraft 1.21.4 or newer. New blocks become holdable cube items; they can't be placed as new blocks without mods.
+
 ## Limits
-- Resource packs can only retexture things the game already has. A brand-new texture needs a model to appear in-game.
+- Resource packs can only retexture things the game already has; new items are a trick via `item_model` (above).
+- If an installation uses a custom game directory, pick that folder's `resourcepacks` parent instead (or use the zip download) so the game sees the pack.
 - Entity textures are flat skin sheets (no 3D preview).
 - Firefox/Safari can't write folders: use **load client.jar**; Save then downloads a zip to drop in `resourcepacks`.

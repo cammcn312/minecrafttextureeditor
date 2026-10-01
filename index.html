@@ -67,6 +67,11 @@ dialog{background:var(--panel);color:var(--fg);border:1px solid var(--line);bord
 dialog::backdrop{background:#000a}
 dialog label{display:block;margin:8px 0 2px;color:var(--dim);font-size:12px}
 .note{color:var(--dim);font-size:12px}
+#scene{position:relative;flex:1;perspective:700px;perspective-origin:50% 40%;min-height:260px;cursor:grab;overflow:hidden;background:radial-gradient(#2d3139,#1b1d22)}
+.model,.inner,.part{position:absolute;transform-style:preserve-3d;width:0;height:0}
+.model{left:50%;top:50%}.inner,.part{left:0;top:0}
+.face{position:absolute;image-rendering:pixelated;backface-visibility:hidden}
+.cmd{display:flex;gap:6px;align-items:center;margin-bottom:4px}.cmd code{flex:1;font-size:11px;background:#15171b;padding:3px 5px;border-radius:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -109,7 +114,7 @@ dialog label{display:block;margin:8px 0 2px;color:var(--dim);font-size:12px}
   </div>
 
   <section class="right">
-    <div class="tabs"><button id="tabPaint" class="on">🎨 Paint</button><button id="tabAI">🤖 Idea Helper</button></div>
+    <div class="tabs"><button id="tabPaint" class="on">🎨 Paint</button><button id="tabAI">🤖 Ideas</button><button id="tab3D">🧊 3D</button></div>
     <div id="paintPane" class="body">
       <div>
         <h3>Colour</h3>
@@ -135,6 +140,14 @@ dialog label{display:block;margin:8px 0 2px;color:var(--dim);font-size:12px}
         <div id="layers" style="display:flex;flex-direction:column;gap:4px"></div>
         <p class="note">When you save, all layers are merged into one texture.</p>
       </div>
+      <div>
+        <h3>New items in the game</h3>
+        <div id="customBox" class="note">Make a ＋ New texture (item or block) and save. Then paste its command in the game to get it.</div>
+      </div>
+    </div>
+    <div id="pane3D" style="display:none;flex:1;min-height:0;flex-direction:column">
+      <div id="scene"></div>
+      <div class="note" style="padding:8px 10px"><label><input type="checkbox" id="chkSpin" checked> Spin</label> · drag to turn it<div id="msg3d"></div></div>
     </div>
     <div id="aiPane" style="display:none;flex:1;min-height:0;flex-direction:column">
       <div id="chat"></div>
@@ -269,6 +282,7 @@ function bumpThumb() {
 }
 function editedCount() { let n = 0; edits.forEach(d => { if (d.dirty) n++; }); return n; }
 function updateTabs() {
+  renderCustom();
   const box = $('#cats'); box.innerHTML = '';
   CATS.forEach(([k, label]) => {
     const b = el('button', tab === k ? 'on' : '', k === 'edited' ? label + ' (' + editedCount() + ')' : label);
@@ -354,6 +368,7 @@ function render() {
   vctx.clearRect(0, 0, doc.w, doc.h);
   for (const l of doc.layers) if (l.visible) { vctx.globalAlpha = l.opacity; vctx.drawImage(l.canvas, 0, 0); }
   vctx.globalAlpha = 1;
+  queuePreview();
 }
 function autoZoom() {
   const st = $('#stage'), aw = Math.max(200, st.clientWidth - 60), ah = Math.max(200, st.clientHeight - 60);
@@ -630,6 +645,16 @@ async function buildPack() {
     if (!d.dirty) continue;
     const c = flatten(d); first = first || c; n++;
     z.file(p, await toBlob(c));
+    if (isCustom(p) && packFmt() >= 46) {
+      const m = /textures\/(item|block)\/([^/]+)\.png$/.exec(p);
+      if (m) {
+        const [, kind, id] = m;
+        z.file('assets/minecraft/models/item/' + id + '.json', JSON.stringify(kind === 'item'
+          ? { parent: 'minecraft:item/generated', textures: { layer0: 'minecraft:item/' + id } }
+          : { parent: 'minecraft:block/cube_all', textures: { all: 'minecraft:block/' + id } }));
+        z.file('assets/minecraft/items/' + id + '.json', JSON.stringify({ model: { type: 'minecraft:model', model: 'minecraft:item/' + id } }));
+      }
+    }
     const meta = jar.file(p + '.mcmeta');            // keep animation info for animated textures
     if (meta) z.file(p + '.mcmeta', await meta.async('uint8array'));
   }
@@ -691,11 +716,16 @@ $('#jarFile').onchange = async e => {
 window.addEventListener('beforeunload', e => { if (unsaved) { e.preventDefault(); e.returnValue = ''; } });
 
 // ---------- tabs on the right ----------
-function rightTab(ai) {
-  $('#paintPane').style.display = ai ? 'none' : ''; $('#aiPane').style.display = ai ? 'flex' : 'none';
-  $('#tabPaint').classList.toggle('on', !ai); $('#tabAI').classList.toggle('on', ai);
+let rtab = 'paint';
+function rightTab(t) {
+  rtab = t;
+  $('#paintPane').style.display = t === 'paint' ? '' : 'none';
+  $('#aiPane').style.display = t === 'ai' ? 'flex' : 'none';
+  $('#pane3D').style.display = t === '3d' ? 'flex' : 'none';
+  $('#tabPaint').classList.toggle('on', t === 'paint'); $('#tabAI').classList.toggle('on', t === 'ai'); $('#tab3D').classList.toggle('on', t === '3d');
+  if (t === '3d') build3D();
 }
-$('#tabPaint').onclick = () => rightTab(false); $('#tabAI').onclick = () => rightTab(true);
+$('#tabPaint').onclick = () => rightTab('paint'); $('#tabAI').onclick = () => rightTab('ai'); $('#tab3D').onclick = () => rightTab('3d');
 
 // ---------- AI helper ----------
 const chat = []; // {role, content}
@@ -740,6 +770,101 @@ $('#askIn').onkeydown = e => { if (e.key === 'Enter') ask(e.target.value); };
   const b = el('button', '', t); b.onclick = () => ask(t); $('#chips').appendChild(b);
 });
 addMsg('assistant', "Hi! I'm your idea helper. Ask me for colour palettes, themes, or how to make something look cool. Click a colour I suggest to use it!");
+
+// ---------- custom items ----------
+const packFmt = () => { const m = packMeta().pack; return m.pack_format != null ? m.pack_format : m.min_format; };
+const isCustom = p => !!jar && !jar.file(p) && /textures\/(item|block)\/[^/]+\.png$/.test(p) && !!edits.get(p) && edits.get(p).dirty;
+function renderCustom() {
+  const box = $('#customBox'); if (!box) return; box.innerHTML = '';
+  const list = [...edits.keys()].filter(isCustom);
+  if (!list.length) { box.textContent = 'Make a ＋ New texture (item or block) and save. Then paste its command in the game to get it.'; return; }
+  if (packFmt() < 46) { box.textContent = 'Custom items need Minecraft 1.21.4 or newer (this version is older).'; return; }
+  list.forEach(p => {
+    const id = p.split('/').pop().replace('.png', ''), cmd = '/give @s minecraft:paper[item_model="minecraft:' + id + '"]';
+    const row = el('div', 'cmd'), c = el('code', '', cmd), b = el('button', 'mini', 'Copy');
+    b.onclick = () => navigator.clipboard.writeText(cmd).then(() => status('Copied! Paste it into Minecraft chat (needs cheats on).'));
+    row.append(c, b); box.appendChild(row);
+  });
+  box.appendChild(el('div', '', 'After saving: reload the pack (F3+T), then run the command in-game.'));
+}
+
+// ---------- 3D preview ----------
+const K = 7; let ang = 30, tilt = -18, modelEl = null, token = 0, dragging = false, prevTimer = 0;
+function crop(src, x, y, w, h) {
+  const c = document.createElement('canvas'); c.width = Math.max(1, w); c.height = Math.max(1, h);
+  c.getContext('2d').drawImage(src, x, y, w, h, 0, 0, w, h); return c;
+}
+function face(cv, w, h, tf) {
+  cv.className = 'face'; cv.style.width = w * K + 'px'; cv.style.height = h * K + 'px';
+  cv.style.left = -w * K / 2 + 'px'; cv.style.top = -h * K / 2 + 'px'; cv.style.transform = tf; return cv;
+}
+function box(src, w, h, d, u, v, x, y, z) {
+  const g = el('div', 'part'); g.style.transform = 'translate3d(' + x * K + 'px,' + y * K + 'px,' + z * K + 'px)';
+  const F = (cx, cy, cw, ch, tf) => g.appendChild(face(crop(src, cx, cy, cw, ch), cw, ch, tf));
+  F(u + d, v + d, w, h, 'translateZ(' + d * K / 2 + 'px)');
+  F(u + 2 * d + w, v + d, w, h, 'rotateY(180deg) translateZ(' + d * K / 2 + 'px)');
+  F(u + d + w, v + d, d, h, 'rotateY(90deg) translateZ(' + w * K / 2 + 'px)');
+  F(u, v + d, d, h, 'rotateY(-90deg) translateZ(' + w * K / 2 + 'px)');
+  F(u + d, v, w, d, 'rotateX(90deg) translateZ(' + h * K / 2 + 'px)');
+  F(u + d + w, v, w, d, 'rotateX(-90deg) translateZ(' + h * K / 2 + 'px)');
+  return g;
+}
+async function texCanvas(path) {
+  const d = edits.get(path); if (d) return flatten(d);
+  const f = jar && jar.file(path); if (!f) return null;
+  const bmp = await createImageBitmap(await f.async('blob')), c = document.createElement('canvas');
+  c.width = bmp.width; c.height = bmp.height; c.getContext('2d').drawImage(bmp, 0, 0); return c;
+}
+const square = c => crop(c, 0, 0, c.width, c.width);
+function queuePreview() { if (rtab !== '3d') return; clearTimeout(prevTimer); prevTimer = setTimeout(build3D, 150); }
+async function build3D() {
+  const my = ++token, scene = $('#scene'), msg = $('#msg3d'); msg.textContent = '';
+  scene.innerHTML = ''; modelEl = null;
+  if (!doc) { msg.textContent = 'Open a texture to see it in 3D.'; return; }
+  const p = doc.path, src = flatten(doc), file = p.split('/').pop().replace('.png', ''), dir = p.slice(0, p.lastIndexOf('/') + 1);
+  const root = el('div', 'model'), inner = el('div', 'inner'); root.appendChild(inner);
+  if (/textures\/blocks?\//.test(p)) {
+    const base = file.replace(/_(top|side|bottom|end|front)$/, '');
+    const cand = async s => file.endsWith('_' + s) ? src : await texCanvas(dir + base + '_' + s + '.png');
+    const plain = file === base ? src : null;
+    const side = square(await cand('side') || plain || await cand('front') || src);
+    const top = square(await cand('top') || await cand('end') || plain || side), bottom = square(await cand('bottom') || top);
+    const c = n => { const k = document.createElement('canvas'); k.width = n.width; k.height = n.height; k.getContext('2d').drawImage(n, 0, 0); return k; };
+    [['translateZ', side], ['rotateY(90deg) translateZ', side], ['rotateY(180deg) translateZ', side], ['rotateY(-90deg) translateZ', side], ['rotateX(90deg) translateZ', top], ['rotateX(-90deg) translateZ', bottom]]
+      .forEach(([t, cv]) => inner.appendChild(face(c(cv), 16, 16, t + '(' + 8 * K + 'px)')));
+  } else if (/textures\/items?\//.test(p)) {
+    const sq = square(src);
+    inner.appendChild(face(sq, 16, 16, 'translateZ(' + K / 2 + 'px)'));
+    const back = document.createElement('canvas'); back.width = sq.width; back.height = sq.height; back.getContext('2d').drawImage(sq, 0, 0);
+    inner.appendChild(face(back, 16, 16, 'rotateY(180deg) translateZ(' + K / 2 + 'px)'));
+  } else if (/textures\/entity\//.test(p) && /creeper/.test(file) && src.width === 64 && src.height === 32) {
+    inner.append(box(src, 8, 8, 8, 0, 0, 0, -22, 0), box(src, 8, 12, 4, 16, 16, 0, -12, 0));
+    [[-2, -4], [2, -4], [-2, 4], [2, 4]].forEach(([x, z]) => inner.appendChild(box(src, 4, 6, 4, 0, 16, x, -3, z)));
+    inner.style.transform = 'translateY(' + 13 * K + 'px)';
+  } else if (/textures\/entity\//.test(p) && /^(zombie|skeleton|husk|stray|drowned|wither_skeleton|steve|alex|player)/.test(file) && src.width === 64 && (src.height === 32 || src.height === 64)) {
+    const n = src.height === 64;
+    inner.append(box(src, 8, 8, 8, 0, 0, 0, -28, 0), box(src, 8, 12, 4, 16, 16, 0, -18, 0),
+      box(src, 4, 12, 4, 40, 16, -6, -18, 0), box(src, 4, 12, 4, n ? 32 : 40, n ? 48 : 16, 6, -18, 0),
+      box(src, 4, 12, 4, 0, 16, -2, -6, 0), box(src, 4, 12, 4, n ? 16 : 0, n ? 48 : 16, 2, -6, 0));
+    inner.style.transform = 'translateY(' + 16 * K + 'px)';
+  } else {
+    msg.textContent = 'No 3D preview for this one yet (blocks, items, creeper and humanoid mobs work). Paint it flat as usual.'; return;
+  }
+  if (my !== token) return;
+  modelEl = root; scene.appendChild(root); spinTick(true);
+}
+function applyRot() { if (modelEl) modelEl.style.transform = 'rotateX(' + tilt + 'deg) rotateY(' + ang + 'deg)'; }
+function spinTick(once) {
+  applyRot(); if (once === true) return;
+}
+setInterval(() => { if (rtab === '3d' && modelEl && !dragging && $('#chkSpin').checked) { ang = (ang + 1.2) % 360; applyRot(); } }, 33);
+(() => {
+  const sc = $('#scene'); let lx = 0, ly = 0;
+  sc.addEventListener('pointerdown', e => { dragging = true; lx = e.clientX; ly = e.clientY; sc.setPointerCapture(e.pointerId); sc.style.cursor = 'grabbing'; });
+  sc.addEventListener('pointermove', e => { if (!dragging) return; ang += (e.clientX - lx) * .8; tilt = clamp(tilt - (e.clientY - ly) * .5, -85, 85); lx = e.clientX; ly = e.clientY; applyRot(); });
+  const up = () => { dragging = false; sc.style.cursor = 'grab'; };
+  sc.addEventListener('pointerup', up); sc.addEventListener('pointercancel', up);
+})();
 
 // ---------- start ----------
 renderDyes(); updateTabs(); showDoc();
