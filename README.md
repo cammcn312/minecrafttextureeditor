@@ -13,8 +13,8 @@ A yellow bar at the top always says what to do next. 🎲 **Surprise me!** (Idea
 ## For the grown-up
 - The whole app is the single file `index.html` (JSZip is built in; its licence is in `JSZIP-LICENSE.md`). You can copy just that one file anywhere.
 - There is no folder picker (Chrome blocks `.minecraft`). The app reads only the game's `.jar` file that he picks, and caches it in the browser.
-- **Optional one-time setup:** after the first save, press *⚡ Grown-up: make this automatic* (or ⚙ → Set up automatic saving), and save the pack file into `%appdata%\.minecraft\resourcepacks`. After that the green button writes straight into Minecraft and he only needs F3+T in-game.
-- **⚙ Grown-ups corner:** game file, pack name, automatic saving, AI key, forget saved pictures.
+- **Optional one-time automatic saving:** Chrome/Edge refuse to let websites write inside `.minecraft`, so the app uses a Windows "junction" (a shortcut folder). After the first save press *⚡ Grown-up: make this automatic* (or ⚙ → Set up automatic saving). It copies one command: press **Win+R**, paste, Enter (a black window should say "Junction created"). That makes `%userprofile%\TextureStudio` appear inside `.minecraft\resourcepacks`. Then choose that `TextureStudio` folder in the app. From then on the green button saves straight in; he only presses F3+T in-game. (Mac: the same idea with `ln -s`, shown in the app.) The app only writes to that folder if it is empty or already its own.
+- **⚙ Grown-ups corner:** game file, automatic saving, AI key, forget saved pictures.
 - **AI Idea Helper chat** needs internet and an Anthropic API key (⚙ → Set key; stored only in this browser). Everything else works without it.
 - If an installation uses a custom game directory, save the pack into that folder's `resourcepacks`.
 

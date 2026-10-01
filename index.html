@@ -284,7 +284,7 @@ const esc = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c
 const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
 const niceName = p => { const n = p.split('/').pop().replace(/\.png$/, '').replace(/_/g, ' '); return n.charAt(0).toUpperCase() + n.slice(1); };
 
-let jar = null, verInfo = null, curLabel = '', packFile = null;
+let jar = null, verInfo = null, curLabel = '', packDir = null;
 let assets = [], assetMap = new Map();
 const edits = new Map();              // path -> doc (only touched pictures)
 let doc = null, unsaved = false, savedOnce = false, draftOffered = false;
@@ -337,7 +337,7 @@ async function ensurePerm(h) {
 
 // ---------- connecting to Minecraft (pick the game's .jar file) ----------
 function pill() {
-  $('#conn').textContent = !jar ? '⚪ Not connected' : '🟢 Minecraft ' + curLabel + (packFile ? ' · saves straight in' : '');
+  $('#conn').textContent = !jar ? '⚪ Not connected' : '🟢 Minecraft ' + curLabel + (packDir ? ' · saves straight in' : '');
 }
 function showWelcome(on) { $('#welcome').hidden = !on; }
 function makeJar(z) {
@@ -797,8 +797,9 @@ function packMeta() {
 const packFmt = () => { const m = packMeta().pack; return m.pack_format != null ? m.pack_format : m.min_format; };
 const isCustom = p => !!jar && !jar.file(p) && /textures\/(item|block)\/[^/]+\.png$/.test(p) && !!edits.get(p) && edits.get(p).dirty;
 
-async function buildPack() {
-  const z = new JSZip(); z.file('pack.mcmeta', JSON.stringify(packMeta(), null, 2));
+async function collectPack() {
+  const files = [], z = { file: (path, data) => files.push([path, data]) };
+  z.file('pack.mcmeta', JSON.stringify(packMeta(), null, 2));
   let first = null, n = 0;
   for (const [p, d] of edits) {
     if (!d.dirty) continue;
@@ -822,6 +823,11 @@ async function buildPack() {
     const x = ic.getContext('2d'); x.imageSmoothingEnabled = false; x.drawImage(first, 0, 0, 128, 128);
     z.file('pack.png', await toBlob(ic));
   }
+  return { files, n };
+}
+async function buildPack() {
+  const { files, n } = await collectPack(), z = new JSZip();
+  files.forEach(([path, data]) => z.file(path, data));
   return { blob: await z.generateAsync({ type: 'blob', compression: 'DEFLATE' }), n };
 }
 async function isOurPack(file) {
@@ -840,10 +846,32 @@ function customCmdNodes() {
   });
   return wrap;
 }
-async function writeTo(h, blob) { const w = await h.createWritable(); await w.write(blob); await w.close(); }
-function enableSteps(name) {
+const MARKER = '.texturestudio';
+const PD_NAME = 'TextureStudio';
+const SETUP_CMD = IS_MAC
+  ? 'mkdir -p ~/TextureStudio "$HOME/Library/Application Support/minecraft/resourcepacks" && ln -s ~/TextureStudio "$HOME/Library/Application Support/minecraft/resourcepacks/TextureStudio"'
+  : 'cmd /k mkdir "%appdata%\\.minecraft\\resourcepacks" & mkdir "%userprofile%\\TextureStudio" & mklink /J "%appdata%\\.minecraft\\resourcepacks\\TextureStudio" "%userprofile%\\TextureStudio"';
+const PD_PATH = IS_MAC ? '~/TextureStudio' : '%userprofile%\\TextureStudio';
+
+async function dirIsOurs(h) {                                // only touch a folder that is empty or already ours
+  let any = false;
+  for await (const [name] of h.entries()) { any = true; if (name === MARKER) return true; }
+  return !any;
+}
+async function writeFolder(h, files) {
+  await h.getFileHandle(MARKER, { create: true }).then(async fh => { const w = await fh.createWritable(); await w.write('Texture Studio pack folder'); await w.close(); });
+  try { await h.removeEntry('assets', { recursive: true }); } catch {}   // clear old textures so removed ones disappear
+  for (const [path, data] of files) {
+    const parts = path.split('/'), name = parts.pop(); let d = h;
+    for (const part of parts) d = await d.getDirectoryHandle(part, { create: true });
+    const w = await (await d.getFileHandle(name, { create: true })).createWritable(); await w.write(data); await w.close();
+  }
+}
+function enableSteps(first) {
   const node = el('div');
-  node.innerHTML = '<ol><li>Open Minecraft. (Already playing? Press <b>F3 + T</b> in your world.)</li><li>Click <b>Options → Resource Packs</b>.</li><li>Find <b>' + esc(name) + '</b> and click the ▶ arrow to move it across.</li><li>Click <b>Done</b> — look at your pictures! 🎉</li></ol><p class="note">Your real Minecraft files were not changed. To turn it off, click the arrow back.</p>';
+  node.innerHTML = first
+    ? '<ol><li>Open Minecraft. (Already playing? Press <b>F3 + T</b> in your world.)</li><li>Click <b>Options → Resource Packs</b>.</li><li>Find <b>' + PD_NAME + '</b> and click the ▶ arrow to move it across.</li><li>Click <b>Done</b> — look at your pictures! 🎉</li></ol><p class="note">Your real Minecraft files were not changed. To turn it off, click the arrow back.</p>'
+    : '<p style="font-size:17px">In Minecraft press <b>F3 + T</b> to see your changes! 🎉</p><p class="note">(Not switched on yet? Options → Resource Packs → ▶ on <b>' + PD_NAME + '</b>.)</p>';
   const c = customCmdNodes(); if (c) node.appendChild(c);
   return node;
 }
@@ -852,25 +880,26 @@ async function save() {
   if (!jar) { showWelcome(true); return; }
   if (!editedCount()) { await modal({ title: '🎨 Nothing to save yet', text: 'Paint something first, then press the green button again!' }); return; }
   const name = safeName();
-  let built; try { built = await buildPack(); } catch (e) { await modal({ title: '😬 Oops', text: 'Could not make the pack: ' + e.message }); return; }
-  const { blob, n } = built, many = n + ' picture' + (n === 1 ? '' : 's');
-  if (packFile) {                                           // automatic saving is set up: write straight into Minecraft
+  let packed; try { packed = await collectPack(); } catch (e) { await modal({ title: '😬 Oops', text: 'Could not make the pack: ' + e.message }); return; }
+  const many = packed.n + ' picture' + (packed.n === 1 ? '' : 's');
+  if (packDir) {                                            // automatic saving is set up: write straight into Minecraft
     try {
-      await ensurePerm(packFile);
-      const f = await packFile.getFile();
-      if (f.size > 0 && !(await isOurPack(f))) { await modal({ title: '🛡 I kept your other file safe', text: '“' + packFile.name + '” wasn’t made by Texture Studio, so I did NOT touch it. A grown-up can fix this in ⚙.' }); return; }
-      await writeTo(packFile, blob);
+      await ensurePerm(packDir);
+      if (!(await dirIsOurs(packDir))) { await modal({ title: '🛡 I kept that folder safe', text: 'The save folder has other things in it, so I did NOT touch it. A grown-up can fix this in ⚙.' }); return; }
+      await writeFolder(packDir, packed.files);
       unsaved = false; coach();
-      await modal({ title: '🎉 Saved ' + many + '!', node: enableSteps(packFile.name.replace(/\.zip$/i, '')) });
+      const first = !savedOnce; savedOnce = true; try { localStorage.setItem('ts_saved', '1'); } catch {}
+      await modal({ title: '🎉 Saved ' + many + '!', node: enableSteps(first) });
       return;
     } catch (e) { console.warn(e); }
   }
-  const a = el('a'); a.href = URL.createObjectURL(blob); a.download = name + '.zip'; a.click();   // otherwise: download a file
+  const blob = await buildPack().then(r => r.blob);       // otherwise: download a zip
+  const a = el('a'); a.href = URL.createObjectURL(blob); a.download = name + '.zip'; a.click();
   unsaved = false; coach();
   const node = el('div');
-  node.innerHTML = '<p style="font-size:17px">I made <b>' + esc(name) + '.zip</b> (look at the bottom or top-right of Chrome). Get it into Minecraft — the easy way:</p><ol>' +
+  node.innerHTML = '<p style="font-size:17px">I made <b>' + esc(name) + '.zip</b> (look at the bottom or top-right of the browser). Get it into Minecraft — the easy way:</p><ol>' +
     '<li>Open Minecraft → <b>Options → Resource Packs</b>.</li>' +
-    '<li><b>Drag</b> <b>' + esc(name) + '.zip</b> from Chrome onto the Minecraft window.</li>' +
+    '<li><b>Drag</b> <b>' + esc(name) + '.zip</b> from the browser onto the Minecraft window.</li>' +
     '<li>Click the ▶ arrow on it, then <b>Done</b>. 🎉</li></ol>' +
     '<p class="note">Drag didn’t work? On that Resource Packs screen click <b>Open Pack Folder</b> and drop the file in there.</p>';
   const cc = customCmdNodes(); if (cc) node.appendChild(cc);
@@ -878,23 +907,28 @@ async function save() {
   if (r === 'auto') await setupAuto();
 }
 async function setupAuto() {
-  if (!window.showSaveFilePicker) { await modal({ title: 'Use Chrome or Edge', text: 'Automatic saving only works in Chrome or Edge.' }); return; }
-  copyText(PATH_PACKS);
+  if (!window.showDirectoryPicker) { await modal({ title: 'Use Chrome or Edge', text: 'Automatic saving only works in Chrome or Edge.' }); return; }
+  copyText(SETUP_CMD);
   const node = el('div');
-  node.innerHTML = '<p style="font-size:17px">One time only! A save window will open. I copied the address for you:</p><ol>' +
-    (IS_MAC ? '<li>Press <b>Cmd + Shift + G</b>, <b>Cmd + V</b>, <b>Enter</b>.</li>' : '<li>Click the long box at the top, press <b>Ctrl + V</b>, then <b>Enter</b>.</li>') +
-    '<li>Click <b>Save</b>. If it asks to replace a file, say yes.</li></ol><div class="cmd"><code>' + esc(PATH_PACKS) + '</code></div>';
-  const r = await modal({ title: '⚡ Automatic saving', node, buttons: [{ label: 'Cancel', value: 'no' }, { label: 'Open the save window', value: 'go', primary: true }] });
+  node.innerHTML = '<p style="font-size:16px">One-time setup. Chrome won’t let websites write inside <b>.minecraft</b>, so we make a normal folder and a shortcut to it:</p><ol>' +
+    (IS_MAC ? '<li>Open <b>Terminal</b>, paste (Cmd+V) and press Enter. (I copied the command.)</li>'
+            : '<li>Press <b>Windows key + R</b>, paste (Ctrl+V) and press <b>Enter</b>. (I copied the command.) A black window stays open and should say <b>Junction created</b>. Close it.</li>') +
+    '<li>Click <b>Choose the folder</b> below and pick the <b>' + PD_NAME + '</b> folder it made. Tip: paste <b>' + esc(PD_PATH) + '</b> in the address bar.</li></ol>' +
+    '<div class="cmd"><code>' + esc(SETUP_CMD) + '</code></div>';
+  const cb = el('button', 'mini', '📋 Copy command again'); cb.onclick = () => copyText(SETUP_CMD); node.appendChild(cb);
+  const r = await modal({ title: '⚡ Automatic saving', node, buttons: [{ label: 'Cancel', value: 'no' }, { label: 'Choose the folder', value: 'go', primary: true }] });
   if (r !== 'go') return;
-  let built; try { built = await buildPack(); } catch (e) { return; }
-  let h; try { h = await showSaveFilePicker({ suggestedName: safeName() + '.zip', id: 'mcpack', types: [{ description: 'Zip file', accept: { 'application/zip': ['.zip'] } }] }); } catch { return; }
+  let h; try { h = await showDirectoryPicker({ id: 'tsfolder', mode: 'readwrite' }); } catch { return; }
   try {
-    const f = await h.getFile();
-    if (f.size > 0 && !(await isOurPack(f))) { await modal({ title: '🛡 I kept that file safe', text: 'That file wasn’t made by Texture Studio, so I didn’t change it. Pick a new name next time.' }); return; }
-    await writeTo(h, built.blob);
-  } catch (e) { await modal({ title: '😬 Couldn’t save there', text: 'Chrome wouldn’t let me save in that folder. You can keep using the drag-and-drop way.' }); return; }
-  packFile = h; idb.set('packfile', h); unsaved = false; pill(); coach();
-  await modal({ title: '⚡ Automatic saving is ON', html: '<p style="font-size:17px">From now on the green button saves straight into Minecraft. Just press <b>F3 + T</b> in the game to see changes.</p><p class="note">Don’t see the pack in Minecraft? Ask a grown-up to check the file went into the <b>resourcepacks</b> folder.</p>' });
+    if (!(await dirIsOurs(h))) { await modal({ title: '🛡 That folder has other things in it', text: 'Pick the empty “' + PD_NAME + '” folder from the setup step, so nothing of yours gets touched.' }); return; }
+    packDir = h; await idb.set('packdir', h); pill();
+    if (editedCount()) { const { files } = await collectPack(); await ensurePerm(h); await writeFolder(h, files); unsaved = false; coach(); }
+    else await writeFolder(h, (await collectPack()).files);
+  } catch (e) {
+    console.warn(e); packDir = null; idb.set('packdir', null); pill();
+    await modal({ title: '😬 Couldn’t save there', text: 'The browser wouldn’t let me use that folder (' + (e.message || e) + '). You can keep using the drag-and-drop way.' }); return;
+  }
+  await modal({ title: '⚡ Automatic saving is ON', node: (() => { const n = el('div'); n.innerHTML = '<p style="font-size:17px">From now on the green button saves straight into Minecraft.</p>'; n.appendChild(enableSteps(true)); return n; })() });
 }
 $('#btnSave').onclick = save;
 
@@ -922,7 +956,7 @@ window.addEventListener('beforeunload', e => { if (unsaved) { e.preventDefault()
 $('#btnSettings').onclick = () => {
   $('#keyState').textContent = aiKey() ? '✅ Key is set' : 'Not set';
   $('#verState').textContent = jar ? 'Minecraft ' + curLabel : 'None yet';
-  $('#autoState').textContent = packFile ? '✅ ON (' + packFile.name + ')' : 'Off — saves a file to drag in';
+  $('#autoState').textContent = packDir ? '✅ ON (' + packDir.name + ')' : 'Off — saves a file to drag in';
   $('#dlgSet').showModal();
 };
 $('#conn').onclick = () => $('#btnSettings').click();
@@ -1098,7 +1132,8 @@ setInterval(() => { if (rtab === '3d' && modelEl && !dragging && $('#chkSpin').c
 // ---------- start ----------
 renderDyes(); updateTabs(); showDoc(); updateAiNote(); coach();
 (async () => {
-  packFile = (await idb.get('packfile')) || null;
+  packDir = (await idb.get('packdir')) || null;
+  try { savedOnce = localStorage.getItem('ts_saved') === '1'; } catch {}
   const c = await idb.get('jar');
   if (c && c.blob) {                                        // he already picked the game file once: open it automatically
     $('#btnFind').hidden = true; $('#loadingMsg').hidden = false;
