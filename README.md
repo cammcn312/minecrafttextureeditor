@@ -1,35 +1,34 @@
 # ⛏ Texture Studio
 
-A tiny offline texture editor for Minecraft Java Edition. No install, no admin rights, no internet needed (except the optional AI helper).
+Paint your own Minecraft Java blocks, items and mobs, then see them in your game. Works offline in Chrome or Edge. Nothing to install.
 
-## Run it
-1. Download this folder. Keep `index.html` and `jszip.min.js` together.
-2. Double-click **index.html** (opens in **Chrome or Edge**).
-3. Click **1. Pick Minecraft folder** and choose your `.minecraft` folder:
-   - Windows: press `Win+R`, type `%appdata%\.minecraft`, copy that path into the picker's address bar.
-   - Mac: in the picker press `Cmd+Shift+G` and paste `~/Library/Application Support/minecraft`.
-   - Other launchers: use **…or load client.jar** and pick `versions/<version>/<version>.jar`.
-4. Pick a block/item/entity on the left, paint, then **2. Save to Minecraft**.
-5. In Minecraft: *Options → Resource Packs* → move your pack to the right-hand list → Done. (F3+T reloads in-game.)
+## For the kid
+1. Double-click **index.html**.
+2. Click **🔍 Find my Minecraft**. Paste the address it shows into the window that pops up, press Enter, then **Select Folder**.
+3. Pick something on the left, paint it, and press the big green **🎮 Put in Minecraft!** button.
+4. In Minecraft: **Options → Resource Packs**, click the ▶ arrow on *My Textures*.
 
-## Is it safe?
-- It runs in the browser sandbox and can only touch the one folder you pick.
-- It **only reads** `client.jar` and **only writes** `resourcepacks/<Pack Name>.zip`. It never edits game files.
-- It refuses to overwrite a pack it didn't make. Delete the zip to undo everything.
-- No Minecraft assets are included here; textures are read from your own copy of the game.
+A yellow bar at the top always says what to do next. 🎲 **Surprise me!** (Ideas tab) gives colour themes with no internet.
 
-## Features
-Asset browser (Blocks / Items / Entities / More) with search · pencil, eraser, fill, fill-all-matching, picker, mirror, brush size · hue/saturation/brightness recolour · layers & overlays (from blank, from another game texture, or from a PNG) · undo/redo · 3D preview (blocks, items, creeper, zombie/skeleton-style mobs) · new textures that become real holdable items (see below) · re-opens your earlier pack · AI idea helper.
+## For the grown-up
+- Keep `index.html` and `jszip.min.js` together.
+- **Chrome says "Can't open this folder"?** Use the *backup way* on the welcome screen: pick the game's `.jar` file (under `.minecraft/versions/<version>/`). Saving then downloads a zip and shows how to move it into `resourcepacks`. Optionally pick the `resourcepacks` folder so saving goes straight in.
+- **⚙ Grown-ups corner:** Minecraft version, pack name, resourcepacks folder, and the AI chat key.
+- **AI Idea Helper chat** needs internet and an Anthropic API key (⚙ → Set key; stored only in this browser). Without it everything else works.
+- If an installation uses a custom game directory, save to that folder's `resourcepacks`.
 
-## AI Idea Helper
-Needs internet and an Anthropic API key (paste it once via "Set key"; stored only in this browser). Uses a small, cheap model (`MODEL` at the top of the script). Colours it suggests are clickable.
+## Safety
+- Runs in the browser sandbox and can only touch folders you pick.
+- Only **reads** `client.jar`; only **writes** `resourcepacks/<Pack Name>.zip`. Never edits game files.
+- Refuses to overwrite a pack it didn't make. Delete the zip to undo everything.
+- Work is autosaved in the browser, so closing the tab doesn't lose it. Undo, redo and "start this picture again" are always there.
+- No Minecraft assets are included; textures are read from your own copy of the game.
 
 ## Making a brand-new item
-Click **＋ New texture**, paint it, **Save**. The pack also gets the model files. In the 🎨 Paint tab, "New items in the game" shows a command like
-`/give @s minecraft:paper[item_model="minecraft:ruby"]`: reload the pack (F3+T), paste it in chat (cheats on) and you're holding it. Needs Minecraft 1.21.4 or newer. New blocks become holdable cube items; they can't be placed as new blocks without mods.
+**✨ Make something new** → paint → save. The pack also gets the model files and the save screen shows a command like
+`/give @s minecraft:paper[item_model="minecraft:ruby"]`. Reload the pack (F3+T), paste it in chat (cheats on) and you're holding it. Needs Minecraft 1.21.4+. New blocks become holdable cubes (not placeable).
 
 ## Limits
-- Resource packs can only retexture things the game already has; new items are a trick via `item_model` (above).
-- If an installation uses a custom game directory, pick that folder's `resourcepacks` parent instead (or use the zip download) so the game sees the pack.
-- Entity textures are flat skin sheets (no 3D preview).
-- Firefox/Safari can't write folders: use **load client.jar**; Save then downloads a zip to drop in `resourcepacks`.
+- Packs can only retexture what the game has; new items use the `item_model` trick above.
+- 3D preview: blocks, items, creeper and zombie/skeleton-style mobs only.
+- Firefox/Safari can't save into folders; use the backup way.
