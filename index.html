@@ -195,22 +195,18 @@ code{font-family:Consolas,monospace}
 <div id="welcome"><div class="card">
   <h1>⛏ Texture Studio</h1>
   <p class="lead">Paint your own Minecraft blocks, items and mobs — then see them in your game!</p>
-  <div id="resume" hidden><button class="huge primary" id="btnResume">▶ Welcome back! Click to carry on</button></div>
+  <div id="loadingMsg" class="lead" hidden>⏳ Opening your Minecraft…</div>
   <button class="huge primary" id="btnFind">🔍 Find my Minecraft</button>
+  <p class="note" style="margin:0">When you click, I copy an address for you and a window opens. Then:</p>
   <ol class="steps">
-    <li>A window will pop up.</li>
-    <li>Click the long box at the top of it and paste this, then press <b>Enter</b>:<br>
-      <span class="path"><code id="pathTxt"></code> <button id="btnCopyPath" class="mini">📋 Copy</button></span></li>
-    <li>Click <b>Select Folder</b>. That's it!</li>
+    <li id="step1"></li>
+    <li>Open the folder with the biggest number (like <b>26.3</b>).</li>
+    <li>Click the file ending in <b>.jar</b> and press <b>Open</b>. Done!</li>
   </ol>
-  <details id="backup"><summary>😕 It says “Can't open this folder”?</summary>
-    <p>No problem! Use the backup way — it works the same.</p>
-    <div class="bstep"><b>Step 1.</b> Pick the Minecraft game file.
-      <button id="btnJar" class="big">📄 Pick the game file</button>
-      <div class="note">Paste <code id="jarPath"></code> into the box at the top, open your version folder (like <b>26.3</b>) and pick the file ending in <b>.jar</b>.</div></div>
-    <div class="bstep"><b>Step 2 (optional).</b> Choose where to save.
-      <button id="btnPacks" class="big">📁 Choose the “resourcepacks” folder</button>
-      <div class="note">If you skip this, the app gives you a file and shows you where to put it.</div></div>
+  <details><summary>😕 Didn't work?</summary>
+    <p>The game file lives in here. Type or paste this in the box at the top of the window:<br>
+      <span class="path"><code id="pathTxt"></code> <button id="btnCopyPath" class="mini">📋 Copy</button></span></p>
+    <p class="note">Then open your version folder and pick the file ending in <b>.jar</b>. Not sure which one? Pick the biggest number.</p>
   </details>
 </div></div>
 
@@ -227,13 +223,14 @@ code{font-family:Consolas,monospace}
 
 <dialog id="dlgSet">
   <h2>⚙ Grown-ups corner</h2>
-  <label class="f">Minecraft version to use</label><select id="ver"><option>(connect to Minecraft first)</option></select>
+  <label class="f">Minecraft game file in use</label>
+  <div class="row"><span class="note" id="verState"></span><button id="btnChange">📄 Pick a different game file</button></div>
   <label class="f">Name of the resource pack in Minecraft</label><input type="text" id="packName" value="My Textures">
-  <label class="f">Where saved packs go</label>
-  <div class="row"><button id="btnFolder2">🔍 Find .minecraft again</button><button id="btnPacks2">📁 Choose resourcepacks folder</button></div>
+  <label class="f">Saving into Minecraft</label>
+  <div class="row"><button id="btnAuto">⚡ Set up automatic saving</button><span class="note" id="autoState"></span></div>
   <label class="f">Idea Helper (AI chat – needs internet and an Anthropic API key)</label>
   <div class="row"><button id="btnKey">🔑 Set / change key</button><span class="note" id="keyState"></span></div>
-  <label class="f">Unsaved work</label><button id="btnForget">🗑 Forget my unsaved work</button>
+  <label class="f">Saved work</label><button id="btnForget">🗑 Forget all my pictures</button>
   <div class="btns"><button id="setClose" class="big primary">Done</button></div>
 </dialog>
 
@@ -273,7 +270,7 @@ const esc = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c
 const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
 const niceName = p => { const n = p.split('/').pop().replace(/\.png$/, '').replace(/_/g, ' '); return n.charAt(0).toUpperCase() + n.slice(1); };
 
-let jar = null, verInfo = null, curLabel = '', dirHandle = null, packsHandle = null;
+let jar = null, verInfo = null, curLabel = '', packFile = null;
 let assets = [], assetMap = new Map();
 const edits = new Map();              // path -> doc (only touched pictures)
 let doc = null, unsaved = false, savedOnce = false, draftOffered = false;
@@ -324,58 +321,15 @@ async function ensurePerm(h) {
   if ((await h.queryPermission({ mode: 'readwrite' })) !== 'granted' && (await h.requestPermission({ mode: 'readwrite' })) !== 'granted') throw new Error('no permission');
 }
 
-// ---------- connecting to Minecraft ----------
+// ---------- connecting to Minecraft (pick the game's .jar file) ----------
 function pill() {
-  const p = $('#conn');
-  if (!jar) p.textContent = '⚪ Not connected';
-  else if (dirHandle || packsHandle) p.textContent = '🟢 Minecraft ' + curLabel + ' connected';
-  else p.textContent = '🟡 Backup mode (you move the file yourself)';
+  $('#conn').textContent = !jar ? '⚪ Not connected' : '🟢 Minecraft ' + curLabel + (packFile ? ' · saves straight in' : '');
 }
 function showWelcome(on) { $('#welcome').hidden = !on; }
-
-async function pickFolder() {
-  if (!window.showDirectoryPicker) { await modal({ title: 'Use Chrome or Edge', text: 'This web browser can’t pick folders. Open this page in Google Chrome or Microsoft Edge, or use the backup way.' }); $('#backup').open = true; return; }
-  let h;
-  try { h = await showDirectoryPicker({ id: 'mcfolder', mode: 'readwrite' }); } catch (e) { return; }
-  await connectFull(h, true);
-}
-async function connectFull(h, interactive) {
-  let versions;
-  try { versions = await h.getDirectoryHandle('versions'); }
-  catch {
-    if (h.name === 'resourcepacks') { packsHandle = h; idb.set('packs', h); pill(); await modal({ title: '👍 Got the save folder!', text: 'Now pick the Minecraft game file (the backup way, step 1).' }); $('#backup').open = true; return; }
-    if (interactive) await modal({ title: '🤔 Not quite the right folder', html: '<p style="font-size:17px">Look for the folder called <b>.minecraft</b> — it has a folder called <b>versions</b> inside it.<br>Try again, or use the backup way.</p>' });
-    return;
-  }
-  const names = [];
-  for await (const [n, v] of versions.entries()) {
-    if (v.kind !== 'directory') continue;
-    try { await v.getFileHandle(n + '.jar'); names.push(n); } catch {}
-  }
-  if (!names.length) { await modal({ title: '😮 No game found', text: 'Start Minecraft Java once, close it, then try again.' }); return; }
-  const key = n => (/^\d+(\.\d+)*$/.test(n) ? 1 : 0) * 1e6 + n.split(/[.\-a-z]+/i).filter(Boolean).reduce((a, x, i) => a + (+x || 0) / Math.pow(1000, i), 0);
-  names.sort((a, b) => key(b) - key(a));
-  dirHandle = h; packsHandle = null; idb.set('dir', h); idb.set('packs', null);
-  const sel = $('#ver'); sel.innerHTML = ''; names.forEach(n => sel.add(new Option(n, n)));
-  sel.disabled = false;
-  await loadVersion(names[0]);
-}
-$('#ver').onchange = e => { if (dirHandle) loadVersion(e.target.value, true); };
-
-async function loadVersion(name, switching) {
-  status('⏳ Reading Minecraft ' + name + '…');
-  try {
-    const v = await dirHandle.getDirectoryHandle('versions');
-    const d = await v.getDirectoryHandle(name);
-    const f = await (await d.getFileHandle(name + '.jar')).getFile();
-    await loadJar(await f.arrayBuffer(), name);
-    if (!switching) await tryLoadExistingPack();
-    if (!draftOffered) { draftOffered = true; await offerDraft(); }
-  } catch (e) { console.error(e); status('😬 Could not read that version: ' + e.message); showWelcome(true); }
-}
 async function loadJar(buf, label) {
-  jar = await JSZip.loadAsync(buf); curLabel = label;
-  verInfo = null;
+  const z = await JSZip.loadAsync(buf);
+  if (!Object.keys(z.files).some(p => RE.test(p))) throw new Error('no textures in that file');
+  jar = z; curLabel = label; verInfo = null;
   try { if (jar.file('version.json')) verInfo = JSON.parse(await jar.file('version.json').async('string')); } catch {}
   thumbs.clear(); indexJar();
   edits.forEach((d, p) => { if (!assetMap.has(p) && RE.test(p)) addAsset(p); });
@@ -397,31 +351,25 @@ function indexJar() {
   assets.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-$('#btnFind').onclick = pickFolder;
-$('#btnFolder2').onclick = async () => { $('#dlgSet').close(); await pickFolder(); };
-$('#btnJar').onclick = () => $('#jarFile').click();
+function openGamePicker() { copyText(PATH_VERS); $('#jarFile').click(); }   // copies the address, then opens the file window
+$('#btnFind').onclick = openGamePicker;
 $('#jarFile').onchange = async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
-  dirHandle = null; $('#ver').innerHTML = '<option>(using the game file you picked)</option>'; $('#ver').disabled = true;
-  try { await loadJar(await f.arrayBuffer(), f.name.replace(/\.jar$/i, '')); packsHandle = (await idb.get('packs')) || null; pill(); if (!draftOffered) { draftOffered = true; await offerDraft(); } }
-  catch (err) { await modal({ title: '🤔 That isn’t a Minecraft game file', text: 'Pick the file ending in .jar inside your version folder.' }); }
-};
-async function pickPacks() {
-  if (!window.showDirectoryPicker) { await modal({ title: 'Use Chrome or Edge', text: 'Only Chrome or Edge can pick a save folder.' }); return; }
-  let h; try { h = await showDirectoryPicker({ id: 'mcpacks', mode: 'readwrite' }); } catch { return; }
-  if (h.name !== 'resourcepacks') {
-    let isMc = false; try { await h.getDirectoryHandle('versions'); isMc = true; } catch {}
-    if (isMc) { await connectFull(h, true); return; }
-    const r = await modal({ title: '🤔 Is that the right folder?', text: 'The save folder should be called “resourcepacks”. Use “' + h.name + '” anyway?', buttons: [{ label: 'No, try again', value: 'no' }, { label: 'Yes, use it', value: 'yes', primary: true }] });
-    if (r !== 'yes') return;
+  try {
+    const label = f.name.replace(/\.jar$/i, '');
+    await loadJar(await f.arrayBuffer(), label);
+    idb.set('jar', { name: label, blob: f });            // remember it, so he only picks once
+    await restoreDraft();
+  } catch (err) {
+    console.warn(err);
+    await modal({ title: '🤔 That isn’t the game file', text: 'Look for a file that ends in “.jar” inside your version folder (like 26.3). Let’s try again!', buttons: [{ label: 'Try again', value: 'again', primary: true }] });
+    openGamePicker();
   }
-  packsHandle = h; idb.set('packs', h); pill();
-  await modal({ title: '👍 Done!', text: 'Your pictures will be saved straight into “' + h.name + '”.' });
-}
-$('#btnPacks').onclick = pickPacks; $('#btnPacks2').onclick = async () => { $('#dlgSet').close(); await pickPacks(); };
-$('#pathTxt').textContent = PATH_MC; $('#jarPath').textContent = PATH_VERS;
-$('#btnCopyPath').onclick = () => copyText(PATH_MC);
-if (IS_MAC) { const li = document.querySelector('.steps li:nth-child(2)'); li.insertAdjacentHTML('afterbegin', '(Press <b>Cmd+Shift+G</b> in the window first.) '); }
+};
+$('#pathTxt').textContent = PATH_VERS;
+$('#btnCopyPath').onclick = () => copyText(PATH_VERS);
+$('#step1').innerHTML = IS_MAC ? 'In the window, press <b>Cmd + Shift + G</b>, then <b>Cmd + V</b>, then <b>Enter</b>. (I copied the address for you!)'
+                               : 'In the window that opens, press <b>Ctrl + V</b>, then <b>Enter</b>. (I copied the address for you!)';
 
 // ---------- asset list ----------
 const io = new IntersectionObserver(es => es.forEach(en => {
@@ -841,11 +789,6 @@ async function buildPack() {
   }
   return { blob: await z.generateAsync({ type: 'blob', compression: 'DEFLATE' }), n };
 }
-async function getPacksDir() {
-  if (packsHandle) { await ensurePerm(packsHandle); return packsHandle; }
-  if (dirHandle) { await ensurePerm(dirHandle); return await dirHandle.getDirectoryHandle('resourcepacks', { create: true }); }
-  return null;
-}
 async function isOurPack(file) {
   try { const z = await JSZip.loadAsync(await file.arrayBuffer()); return (await z.file('pack.mcmeta').async('string')).includes('Texture Studio'); } catch { return false; }
 }
@@ -862,6 +805,13 @@ function customCmdNodes() {
   });
   return wrap;
 }
+async function writeTo(h, blob) { const w = await h.createWritable(); await w.write(blob); await w.close(); }
+function enableSteps(name) {
+  const node = el('div');
+  node.innerHTML = '<ol><li>Open Minecraft. (Already playing? Press <b>F3 + T</b> in your world.)</li><li>Click <b>Options → Resource Packs</b>.</li><li>Find <b>' + esc(name) + '</b> and click the ▶ arrow to move it across.</li><li>Click <b>Done</b> — look at your pictures! 🎉</li></ol><p class="note">Your real Minecraft files were not changed. To turn it off, click the arrow back.</p>';
+  const c = customCmdNodes(); if (c) node.appendChild(c);
+  return node;
+}
 async function save() {
   commitAdj();
   if (!jar) { showWelcome(true); return; }
@@ -869,78 +819,87 @@ async function save() {
   const name = safeName();
   let built; try { built = await buildPack(); } catch (e) { await modal({ title: '😬 Oops', text: 'Could not make the pack: ' + e.message }); return; }
   const { blob, n } = built, many = n + ' picture' + (n === 1 ? '' : 's');
-  let dir = null;
-  try { dir = await getPacksDir(); } catch (e) { console.warn(e); }
-  if (dir) {
+  if (packFile) {                                           // automatic saving is set up: write straight into Minecraft
     try {
-      let exists = null; try { exists = await dir.getFileHandle(name + '.zip'); } catch {}
-      if (exists && !(await isOurPack(await exists.getFile()))) { await modal({ title: '🛡 I kept your other pack safe', text: 'A pack called “' + name + '” is already there and wasn’t made by Texture Studio, so I did NOT touch it. Ask a grown-up to change the pack name in ⚙.' }); return; }
-      const w = await (await dir.getFileHandle(name + '.zip', { create: true })).createWritable(); await w.write(blob); await w.close();
-      unsaved = false; savedOnce = true; idb.set('draft', null); coach();
-      const node = el('div');
-      node.innerHTML = '<ol><li>Open Minecraft. (Already playing? Press <b>F3 + T</b> in your world.)</li><li>Click <b>Options → Resource Packs</b>.</li><li>Find <b>' + esc(name) + '</b> and click the ▶ arrow to move it across.</li><li>Click <b>Done</b> — look at your pictures! 🎉</li></ol><p class="note">Your real Minecraft files were not changed. To turn it off, click the arrow back.</p>';
-      const c = customCmdNodes(); if (c) node.appendChild(c);
-      await modal({ title: '🎉 Saved ' + many + '!', node });
+      await ensurePerm(packFile);
+      const f = await packFile.getFile();
+      if (f.size > 0 && !(await isOurPack(f))) { await modal({ title: '🛡 I kept your other file safe', text: '“' + packFile.name + '” wasn’t made by Texture Studio, so I did NOT touch it. A grown-up can fix this in ⚙.' }); return; }
+      await writeTo(packFile, blob);
+      unsaved = false; coach();
+      await modal({ title: '🎉 Saved ' + many + '!', node: enableSteps(packFile.name.replace(/\.zip$/i, '')) });
       return;
-    } catch (e) { console.error(e); }
+    } catch (e) { console.warn(e); }
   }
-  const a = el('a'); a.href = URL.createObjectURL(blob); a.download = name + '.zip'; a.click();
-  unsaved = false; savedOnce = true; coach();
+  const a = el('a'); a.href = URL.createObjectURL(blob); a.download = name + '.zip'; a.click();   // otherwise: download a file
+  unsaved = false; coach();
   const node = el('div');
-  node.innerHTML = '<p style="font-size:17px">I made a file called <b>' + esc(name) + '.zip</b> in your <b>Downloads</b> folder. Now move it into Minecraft:</p><ol>' +
-    (IS_MAC ? '<li>Open Finder, press <b>Cmd+Shift+G</b>.</li><li>Paste the address below and press Enter.</li><li>Drag the zip file in.</li>'
-            : '<li>Press the <b>Windows key + R</b>.</li><li>Paste the address below and press <b>Enter</b>.</li><li>Drag <b>' + esc(name) + '.zip</b> from Downloads into the window that opens.</li>') +
-    '</ol>';
-  const row = el('div', 'cmd'), c = el('code', '', PATH_PACKS), b = el('button', 'mini', '📋 Copy'); b.onclick = () => copyText(PATH_PACKS); row.append(c, b); node.appendChild(row);
-  node.appendChild(el('p', 'note', 'Then in Minecraft: Options → Resource Packs → click the ▶ arrow on your pack.'));
+  node.innerHTML = '<p style="font-size:17px">I made <b>' + esc(name) + '.zip</b> (look at the bottom or top-right of Chrome). Get it into Minecraft — the easy way:</p><ol>' +
+    '<li>Open Minecraft → <b>Options → Resource Packs</b>.</li>' +
+    '<li><b>Drag</b> <b>' + esc(name) + '.zip</b> from Chrome onto the Minecraft window.</li>' +
+    '<li>Click the ▶ arrow on it, then <b>Done</b>. 🎉</li></ol>' +
+    '<p class="note">Drag didn’t work? On that Resource Packs screen click <b>Open Pack Folder</b> and drop the file in there.</p>';
   const cc = customCmdNodes(); if (cc) node.appendChild(cc);
-  await modal({ title: '📦 Almost there!', node });
+  const r = await modal({ title: '📦 Almost there!', node, buttons: [{ label: '⚡ Grown-up: make this automatic', value: 'auto' }, { label: 'OK 👍', value: 'ok', primary: true }] });
+  if (r === 'auto') await setupAuto();
 }
-async function tryLoadExistingPack() {
+async function setupAuto() {
+  if (!window.showSaveFilePicker) { await modal({ title: 'Use Chrome or Edge', text: 'Automatic saving only works in Chrome or Edge.' }); return; }
+  copyText(PATH_PACKS);
+  const node = el('div');
+  node.innerHTML = '<p style="font-size:17px">One time only! A save window will open. I copied the address for you:</p><ol>' +
+    (IS_MAC ? '<li>Press <b>Cmd + Shift + G</b>, <b>Cmd + V</b>, <b>Enter</b>.</li>' : '<li>Click the long box at the top, press <b>Ctrl + V</b>, then <b>Enter</b>.</li>') +
+    '<li>Click <b>Save</b>. If it asks to replace a file, say yes.</li></ol><div class="cmd"><code>' + esc(PATH_PACKS) + '</code></div>';
+  const r = await modal({ title: '⚡ Automatic saving', node, buttons: [{ label: 'Cancel', value: 'no' }, { label: 'Open the save window', value: 'go', primary: true }] });
+  if (r !== 'go') return;
+  let built; try { built = await buildPack(); } catch (e) { return; }
+  let h; try { h = await showSaveFilePicker({ suggestedName: safeName() + '.zip', id: 'mcpack', types: [{ description: 'Zip file', accept: { 'application/zip': ['.zip'] } }] }); } catch { return; }
   try {
-    const dir = await getPacksDir(); if (!dir) return;
-    const fh = await dir.getFileHandle(safeName() + '.zip').catch(() => null); if (!fh) return;
-    const f = await fh.getFile(); if (!(await isOurPack(f))) return;
-    const z = await JSZip.loadAsync(await f.arrayBuffer()); let n = 0;
-    for (const [p, zf] of Object.entries(z.files)) {
-      if (zf.dir || !RE.test(p)) continue;
-      const d = makeDoc(p, await blobToLayer(await zf.async('blob'), 'Base')); d.dirty = true; edits.set(p, d);
-      if (!assetMap.has(p)) addAsset(p); n++;
-    }
-    if (n) { assets.sort((a, b) => a.name.localeCompare(b.name)); thumbs.clear(); buildList(); status('📂 Loaded your earlier pack “' + safeName() + '” (' + n + ' picture' + (n === 1 ? '' : 's') + ').'); }
-  } catch (e) { console.warn(e); }
+    const f = await h.getFile();
+    if (f.size > 0 && !(await isOurPack(f))) { await modal({ title: '🛡 I kept that file safe', text: 'That file wasn’t made by Texture Studio, so I didn’t change it. Pick a new name next time.' }); return; }
+    await writeTo(h, built.blob);
+  } catch (e) { await modal({ title: '😬 Couldn’t save there', text: 'Chrome wouldn’t let me save in that folder. You can keep using the drag-and-drop way.' }); return; }
+  packFile = h; idb.set('packfile', h); unsaved = false; pill(); coach();
+  await modal({ title: '⚡ Automatic saving is ON', html: '<p style="font-size:17px">From now on the green button saves straight into Minecraft. Just press <b>F3 + T</b> in the game to see changes.</p><p class="note">Don’t see the pack in Minecraft? Ask a grown-up to check the file went into the <b>resourcepacks</b> folder.</p>' });
 }
 $('#btnSave').onclick = save;
 
 // ---------- autosave (so closing the tab can't lose work) ----------
 async function saveDraft() {
-  if (!unsaved) return;
   const items = [];
   for (const [p, d] of edits) if (d.dirty) items.push({ path: p, blob: await toBlob(flatten(d)) });
   idb.set('draft', items.length ? items : null);
 }
 function queueDraftNow() { clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 100); }
-async function offerDraft() {
+let draftRestored = false;
+async function restoreDraft() {
+  if (draftRestored) return; draftRestored = true;
   const items = await idb.get('draft'); if (!items || !items.length) return;
-  const r = await modal({ title: '👋 Welcome back!', text: 'You have ' + items.length + ' picture' + (items.length === 1 ? '' : 's') + ' you didn’t put in Minecraft yet. Want to keep going?', buttons: [{ label: '🗑 Start fresh', value: 'no' }, { label: '▶ Keep going!', value: 'yes', primary: true }] });
-  if (r === 'yes') {
-    for (const it of items) {
-      const d = makeDoc(it.path, await blobToLayer(it.blob, 'Base')); d.dirty = true; edits.set(it.path, d);
-      if (!assetMap.has(it.path) && RE.test(it.path)) addAsset(it.path);
-    }
-    unsaved = true; assets.sort((a, b) => a.name.localeCompare(b.name)); thumbs.clear(); buildList(); coach();
-  } else idb.set('draft', null);
+  for (const it of items) {
+    const d = makeDoc(it.path, await blobToLayer(it.blob, 'Base')); d.dirty = true; edits.set(it.path, d);
+    if (!assetMap.has(it.path) && RE.test(it.path)) addAsset(it.path);
+  }
+  unsaved = true; assets.sort((a, b) => a.name.localeCompare(b.name)); thumbs.clear(); buildList();
+  status('📂 Welcome back! Your ' + items.length + ' picture' + (items.length === 1 ? ' is' : 's are') + ' still here (see ⭐ My work).');
 }
 window.addEventListener('beforeunload', e => { if (unsaved) { e.preventDefault(); e.returnValue = ''; } });
 
 // ---------- settings ----------
-$('#btnSettings').onclick = () => { $('#keyState').textContent = aiKey() ? '✅ Key is set' : 'Not set'; $('#dlgSet').showModal(); };
+$('#btnSettings').onclick = () => {
+  $('#keyState').textContent = aiKey() ? '✅ Key is set' : 'Not set';
+  $('#verState').textContent = jar ? 'Minecraft ' + curLabel : 'None yet';
+  $('#autoState').textContent = packFile ? '✅ ON (' + packFile.name + ')' : 'Off — saves a file to drag in';
+  $('#dlgSet').showModal();
+};
 $('#conn').onclick = () => $('#btnSettings').click();
 $('#setClose').onclick = () => $('#dlgSet').close();
+$('#btnChange').onclick = () => { $('#dlgSet').close(); openGamePicker(); };
+$('#btnAuto').onclick = async () => { $('#dlgSet').close(); await setupAuto(); };
 $('#btnKey').onclick = async () => { $('#dlgSet').close(); await setKey(); };
 $('#btnForget').onclick = async () => {
   $('#dlgSet').close();
-  if (await modal({ title: '🗑 Forget unsaved work?', text: 'This removes the backup copy of pictures you haven’t put in Minecraft yet.', buttons: [{ label: 'No', value: 'no' }, { label: 'Yes, forget it', value: 'yes', primary: true }] }) === 'yes') { await idb.set('draft', null); }
+  if (await modal({ title: '🗑 Forget all pictures?', text: 'This removes every picture you’ve painted from this app (not from Minecraft).', buttons: [{ label: 'No', value: 'no' }, { label: 'Yes, forget them', value: 'yes', primary: true }] }) === 'yes') {
+    await idb.set('draft', null); edits.clear(); thumbs.clear(); doc = null; unsaved = false; showDoc(); buildList(); coach();
+  }
 };
 
 // ---------- right panel tabs ----------
@@ -1104,13 +1063,12 @@ setInterval(() => { if (rtab === '3d' && modelEl && !dragging && $('#chkSpin').c
 // ---------- start ----------
 renderDyes(); updateTabs(); showDoc(); updateAiNote(); coach();
 (async () => {
-  const h = await idb.get('dir');
-  if (h && h.requestPermission) {
-    $('#resume').hidden = false; $('#btnResume').textContent = '▶ Welcome back! Click to carry on';
-    $('#btnResume').onclick = async () => {
-      try { await ensurePerm(h); await connectFull(h, false); if (!jar) showWelcome(true); }
-      catch { $('#resume').hidden = true; await modal({ title: '🤔 Let’s find it again', text: 'Press “Find my Minecraft” and pick the folder once more.' }); }
-    };
+  packFile = (await idb.get('packfile')) || null;
+  const c = await idb.get('jar');
+  if (c && c.blob) {                                        // he already picked the game file once: open it automatically
+    $('#btnFind').hidden = true; $('#loadingMsg').hidden = false;
+    try { await loadJar(await c.blob.arrayBuffer(), c.name); await restoreDraft(); }
+    catch (e) { console.warn(e); $('#btnFind').hidden = false; $('#loadingMsg').hidden = true; }
   }
 })();
 window.__ts = { get doc() { return doc; }, get edits() { return edits; } };   // handy for testing
