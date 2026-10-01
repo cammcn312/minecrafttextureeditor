@@ -326,10 +326,27 @@ function pill() {
   $('#conn').textContent = !jar ? '⚪ Not connected' : '🟢 Minecraft ' + curLabel + (packFile ? ' · saves straight in' : '');
 }
 function showWelcome(on) { $('#welcome').hidden = !on; }
+function makeJar(z) {
+  const names = Object.keys(z.files).filter(n => !z.files[n].dir);
+  let paths = names.filter(n => RE.test(n)), map = null;
+  if (!paths.length) {                                   // newer versions may keep textures somewhere else: look for any "textures" folder
+    const alt = /(?:^|\/)textures\/(.+\.png(?:\.mcmeta)?)$/;
+    map = new Map();
+    for (const n of names) { const m = alt.exec(n); if (m) map.set('assets/minecraft/textures/' + m[1], n); }
+    paths = [...map.keys()].filter(n => /\.png$/.test(n));
+  }
+  if (!paths.length) {
+    const tops = [...new Set(names.map(n => n.split('/')[0]))].slice(0, 12);
+    const pngs = names.filter(n => /\.png$/i.test(n));
+    const e = new Error('no textures found');
+    e.detail = 'No textures found.\nFiles in the jar: ' + names.length + '\nTop-level entries: ' + tops.join(', ') + '\nPNG files: ' + pngs.length + '\nExamples: ' + (pngs.slice(0, 6).join(' | ') || names.slice(0, 6).join(' | '));
+    throw e;
+  }
+  return { paths, file: p => z.file(map && map.has(p) ? map.get(p) : p) };
+}
 async function loadJar(buf, label) {
-  const z = await JSZip.loadAsync(buf);
-  if (!Object.keys(z.files).some(p => RE.test(p))) throw new Error('no textures in that file');
-  jar = z; curLabel = label; verInfo = null;
+  const z = await JSZip.loadAsync(buf), view = makeJar(z);
+  jar = view; curLabel = label; verInfo = null;
   try { if (jar.file('version.json')) verInfo = JSON.parse(await jar.file('version.json').async('string')); } catch {}
   thumbs.clear(); indexJar();
   edits.forEach((d, p) => { if (!assetMap.has(p) && RE.test(p)) addAsset(p); });
@@ -347,7 +364,7 @@ function addAsset(path) {
 }
 function indexJar() {
   assets = []; assetMap.clear();
-  jar.forEach((p, f) => { if (!f.dir && RE.test(p)) addAsset(p); });
+  jar.paths.forEach(p => { if (RE.test(p)) addAsset(p); });
   assets.sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -362,7 +379,11 @@ $('#jarFile').onchange = async e => {
     await restoreDraft();
   } catch (err) {
     console.warn(err);
-    await modal({ title: '🤔 That isn’t the game file', text: 'Look for a file that ends in “.jar” inside your version folder (like 26.3). Let’s try again!', buttons: [{ label: 'Try again', value: 'again', primary: true }] });
+    const detail = err.detail || ('Error: ' + (err && err.message || err));
+    const node = el('div'); node.innerHTML = '<details style="margin-top:10px"><summary>Technical details (for a grown-up)</summary><pre style="white-space:pre-wrap;font-size:12px;background:#101216;padding:8px;border-radius:8px;max-height:160px;overflow:auto"></pre></details>';
+    node.querySelector('pre').textContent = detail;
+    const cb = el('button', 'mini', '📋 Copy details'); cb.style.marginTop = '6px'; cb.onclick = () => copyText(detail); node.appendChild(cb);
+    await modal({ title: '🤔 I couldn’t find the pictures in that file', text: 'Make sure it’s the file ending in “.jar” inside your version folder (like 26.3). If it IS that file, open the technical details and show a grown-up.', node, buttons: [{ label: 'Try again', value: 'again', primary: true }] });
     openGamePicker();
   }
 };
