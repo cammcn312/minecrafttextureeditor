@@ -1,30 +1,35 @@
 # ⛏ Texture Studio
 
-A tiny offline texture editor for Minecraft Java Edition. No install, no admin rights, no internet needed (except the optional AI helper).
+Paint your own Minecraft Java blocks, items and mobs, then see them in your game. Works offline in Chrome or Edge. Nothing to install.
 
-## Run it
-1. Download this folder. Keep `index.html` and `jszip.min.js` together.
-2. Double-click **index.html** (opens in **Chrome or Edge**).
-3. Click **1. Pick Minecraft folder** and choose your `.minecraft` folder:
-   - Windows: press `Win+R`, type `%appdata%\.minecraft`, copy that path into the picker's address bar.
-   - Mac: in the picker press `Cmd+Shift+G` and paste `~/Library/Application Support/minecraft`.
-   - Other launchers: use **…or load client.jar** and pick `versions/<version>/<version>.jar`.
-4. Pick a block/item/entity on the left, paint, then **2. Save to Minecraft**.
-5. In Minecraft: *Options → Resource Packs* → move your pack to the right-hand list → Done. (F3+T reloads in-game.)
+## For the kid
+1. Double-click **index.html** (opens in Chrome or Edge).
+2. Click **🔍 Find my Minecraft**. A window opens and the address is already copied: press **Ctrl+V**, **Enter**, open the folder with the biggest number (like `26.3`), pick the file ending in **.jar**. (Only the first time. It remembers.)
+3. Pick something on the left, paint it, press the big green **🎮 Put in Minecraft!** button.
+4. Follow the pop-up: in Minecraft go to **Options → Resource Packs**, drag the saved zip onto the game window, click the ▶ arrow.
 
-## Is it safe?
-- It runs in the browser sandbox and can only touch the one folder you pick.
-- It **only reads** `client.jar` and **only writes** `resourcepacks/<Pack Name>.zip`. It never edits game files.
-- It refuses to overwrite a pack it didn't make. Delete the zip to undo everything.
-- No Minecraft assets are included here; textures are read from your own copy of the game.
+A yellow bar at the top always says what to do next. 🎲 **Surprise me!** (Ideas tab) gives colour themes with no internet.
 
-## Features
-Asset browser (Blocks / Items / Entities / More) with search · pencil, eraser, fill, fill-all-matching, picker, mirror, brush size · hue/saturation/brightness recolour · layers & overlays (from blank, from another game texture, or from a PNG) · undo/redo · new textures · re-opens your earlier pack · AI idea helper.
+## For the grown-up
+- The whole app is the single file `index.html` (JSZip is built in; its licence is in `JSZIP-LICENSE.md`). You can copy just that one file anywhere.
+- There is no folder picker (Chrome blocks `.minecraft`). The app reads only the game's `.jar` file that he picks, and caches it in the browser.
+- **Optional one-time automatic saving:** Chrome/Edge refuse to let websites write inside `.minecraft`, so the app uses a Windows "junction" (a shortcut folder). After the first save press *⚡ Grown-up: make this automatic* (or ⚙ → Set up automatic saving). It copies one command: press **Win+R**, paste, Enter (a black window should say "Junction created"). That makes `%userprofile%\TextureStudio` appear inside `.minecraft\resourcepacks`. Then choose that `TextureStudio` folder in the app. From then on the green button saves straight in; he only presses F3+T in-game. (Mac: the same idea with `ln -s`, shown in the app.) The app only writes to that folder if it is empty or already its own.
+- **⚙ Grown-ups corner:** game file, automatic saving, AI key, forget saved pictures.
+- **AI Idea Helper chat** needs internet and an Anthropic API key (⚙ → Set key; stored only in this browser). Everything else works without it.
+- If an installation uses a custom game directory, save the pack into that folder's `resourcepacks`.
 
-## AI Idea Helper
-Needs internet and an Anthropic API key (paste it once via "Set key"; stored only in this browser). Uses a small, cheap model (`MODEL` at the top of the script). Colours it suggests are clickable.
+## Safety
+- Runs in the browser sandbox and can only touch folders you pick.
+- Only **reads** the game `.jar` he picks; only **writes** the one pack zip. Never edits game files.
+- Refuses to overwrite a pack it didn't make. Delete the zip to undo everything.
+- Work is autosaved in the browser, so closing the tab doesn't lose it. Undo, redo and "start this picture again" are always there.
+- No Minecraft assets are included; textures are read from your own copy of the game.
+
+## Making a brand-new item
+**✨ Make something new** → paint → save. The pack also gets the model files and the save screen shows a command like
+`/give @s minecraft:paper[item_model="minecraft:ruby"]`. Reload the pack (F3+T), paste it in chat (cheats on) and you're holding it. Needs Minecraft 1.21.4+. New blocks become holdable cubes (not placeable).
 
 ## Limits
-- Resource packs can only retexture things the game already has. A brand-new texture needs a model to appear in-game.
-- Entity textures are flat skin sheets (no 3D preview).
-- Firefox/Safari can't write folders: use **load client.jar**; Save then downloads a zip to drop in `resourcepacks`.
+- Packs can only retexture what the game has; new items use the `item_model` trick above.
+- 3D preview: blocks, items, creeper and zombie/skeleton-style mobs only.
+- Firefox/Safari: no automatic saving; use the drag-and-drop way.
