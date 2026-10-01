@@ -11,7 +11,7 @@ Paint your own Minecraft Java blocks, items and mobs, then see them in your game
 A yellow bar at the top always says what to do next. 🎲 **Surprise me!** (Ideas tab) gives colour themes with no internet.
 
 ## For the grown-up
-- Keep `index.html` and `jszip.min.js` together.
+- The whole app is the single file `index.html` (JSZip is built in; its licence is in `JSZIP-LICENSE.md`). You can copy just that one file anywhere.
 - There is no folder picker (Chrome blocks `.minecraft`). The app reads only the game's `.jar` file that he picks, and caches it in the browser.
 - **Optional one-time setup:** after the first save, press *⚡ Grown-up: make this automatic* (or ⚙ → Set up automatic saving), and save the pack file into `%appdata%\.minecraft\resourcepacks`. After that the green button writes straight into Minecraft and he only needs F3+T in-game.
 - **⚙ Grown-ups corner:** game file, pack name, automatic saving, AI key, forget saved pictures.
